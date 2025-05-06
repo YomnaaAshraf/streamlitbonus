@@ -1,0 +1,67 @@
+# streamlit_app.py
+import streamlit as st
+import requests
+import uuid # To generate unique session IDs for the UI
+
+# FastAPI backend URL
+FASTAPI_URL = "http://localhost:8000/chat" # Or http://127.0.0.1:8000/chat
+
+st.set_page_config(page_title="Local Chatbot", layout="wide")
+st.title("💬 Local Chatbot with Ollama & FastAPI")
+st.caption("Powered by Ollama, LangChain, FastAPI, and Streamlit")
+
+# Initialize chat history in Streamlit's session state
+if "messages" not in st.session_state:
+    st.session_state.messages = [] # List to store {role: "user/assistant", content: "message"}
+
+# Initialize a unique session ID for this browser session with the FastAPI backend
+if "api_session_id" not in st.session_state:
+    st.session_state.api_session_id = str(uuid.uuid4())
+    st.sidebar.write(f"API Session ID: {st.session_state.api_session_id}")
+else:
+    st.sidebar.write(f"API Session ID: {st.session_state.api_session_id}")
+
+
+# Display prior chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Chat input
+if prompt := st.chat_input("What would you like to ask?"):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Prepare data for FastAPI
+    payload = {
+        "message": prompt,
+        "session_id": st.session_state.api_session_id
+    }
+
+    # Display thinking indicator
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                response = requests.post(FASTAPI_URL, json=payload)
+                response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+                
+                bot_reply_data = response.json()
+                bot_reply = bot_reply_data.get("reply")
+
+                if bot_reply:
+                    st.markdown(bot_reply)
+                    # Add bot reply to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+                else:
+                    st.error("Received an empty reply from the bot.")
+                    st.session_state.messages.append({"role": "assistant", "content": "Sorry, I couldn't get a proper reply."})
+            
+            except requests.exceptions.RequestException as e:
+                st.error(f"Error connecting to backend: {e}")
+                st.session_state.messages.append({"role": "assistant", "content": f"Sorry, I couldn't connect to the backend: {e}"})
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+                st.session_state.messages.append({"role": "assistant", "content": f"An unexpected error occurred: {e}"})
